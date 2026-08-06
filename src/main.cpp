@@ -295,6 +295,12 @@ static int runApp(int argc, char* argv[]) {
                     } else if (appState == AppState::Playing) {
                         if (event.key.keysym.sym == SDLK_SPACE || event.key.keysym.sym == SDLK_RETURN) {
                             playerState.togglePause();
+                        } else if (event.key.keysym.sym == SDLK_RIGHT) {
+                            decoder.seekRelative(10.0);
+                            if (audioDevice > 0) SDL_ClearQueuedAudio(audioDevice);
+                        } else if (event.key.keysym.sym == SDLK_LEFT) {
+                            decoder.seekRelative(-10.0);
+                            if (audioDevice > 0) SDL_ClearQueuedAudio(audioDevice);
                         }
                     }
                     break;
@@ -323,12 +329,19 @@ static int runApp(int argc, char* argv[]) {
                             playerState.togglePause();
                         } else if (event.cbutton.button == SDL_CONTROLLER_BUTTON_B) {
                             // B also returns to menu
+                            if (audioDevice > 0) SDL_ClearQueuedAudio(audioDevice);
                             if (videoFiles.size() > 0) {
                                 decoder.close();
                                 appState = AppState::Menu;
                             } else {
                                 running = false;
                             }
+                        } else if (event.cbutton.button == SDL_CONTROLLER_BUTTON_DPAD_RIGHT) {
+                            decoder.seekRelative(10.0);
+                            if (audioDevice > 0) SDL_ClearQueuedAudio(audioDevice);
+                        } else if (event.cbutton.button == SDL_CONTROLLER_BUTTON_DPAD_LEFT) {
+                            decoder.seekRelative(-10.0);
+                            if (audioDevice > 0) SDL_ClearQueuedAudio(audioDevice);
                         }
                     }
                     break;

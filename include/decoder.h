@@ -75,6 +75,13 @@ public:
     // and sets outSize to the byte size of the data. Returns nullptr if no data.
     const uint8_t* getResampledAudio(int& outSize);
 
+    /// Gets the current playback time in seconds (based on the last decoded video frame).
+    double getCurrentTime() const;
+
+    /// Seeks the video by a relative amount (in seconds).
+    /// Positive values seek forward, negative values seek backward.
+    bool seekRelative(double secondsDelta);
+
     /// Returns true if a file is currently open.
     bool isOpen() const;
 
@@ -110,6 +117,7 @@ private:
     int videoStreamIdx_;
     int audioStreamIdx_;
     bool opened_;
+    double currentVideoTime_;
 };
 
 } // namespace r36s

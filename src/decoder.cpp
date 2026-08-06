@@ -52,7 +52,8 @@ Decoder::Decoder()
       audioBufferSize_(0),
       videoStreamIdx_(-1),
       audioStreamIdx_(-1),
-      opened_(false) {}
+      opened_(false),
+      currentVideoTime_(0.0) {}
 
 Decoder::~Decoder() {
     close();
@@ -139,6 +140,7 @@ bool Decoder::open(const std::string& filepath) {
     }
 
     opened_ = true;
+    currentVideoTime_ = 0.0;
     return true;
 }
 
@@ -186,6 +188,9 @@ bool Decoder::decodeNextFrame(bool& isVideo, bool& isAudio) {
     if (videoStreamIdx_ >= 0) {
         if (avcodec_receive_frame(videoCodecCtx_, frame_) == 0) {
             isVideo = true;
+            if (frame_->pts != AV_NOPTS_VALUE) {
+                currentVideoTime_ = frame_->pts * av_q2d(fmtCtx_->streams[videoStreamIdx_]->time_base);
+            }
             return true;
         }
     }
@@ -203,6 +208,9 @@ bool Decoder::decodeNextFrame(bool& isVideo, bool& isAudio) {
                 av_packet_unref(packet_);
                 if (avcodec_receive_frame(videoCodecCtx_, frame_) == 0) {
                     isVideo = true;
+                    if (frame_->pts != AV_NOPTS_VALUE) {
+                        currentVideoTime_ = frame_->pts * av_q2d(fmtCtx_->streams[videoStreamIdx_]->time_base);
+                    }
                     return true;
                 }
                 continue; // Need more packets
@@ -242,6 +250,41 @@ const uint8_t* Decoder::getResampledAudio(int& outSize) {
     // 2 channels * 2 bytes per sample (S16)
     outSize = outSamples * 2 * 2;
     return audioBuffer_;
+}
+
+double Decoder::getCurrentTime() const {
+    return currentVideoTime_;
+}
+
+bool Decoder::seekRelative(double secondsDelta) {
+    if (!opened_ || videoStreamIdx_ < 0 || !fmtCtx_) return false;
+
+    double targetTime = currentVideoTime_ + secondsDelta;
+    if (targetTime < 0.0) targetTime = 0.0;
+    
+    // Fallback: if duration is known, don't seek past it (though av_seek_frame usually handles it)
+    if (fmtCtx_->duration != AV_NOPTS_VALUE) {
+        double durationSec = (double)fmtCtx_->duration / AV_TIME_BASE;
+        if (targetTime > durationSec) {
+            targetTime = durationSec - 1.0; // Seek near the end
+            if (targetTime < 0.0) targetTime = 0.0;
+        }
+    }
+
+    int64_t targetTimestamp = (int64_t)(targetTime * AV_TIME_BASE);
+    int ret = av_seek_frame(fmtCtx_, -1, targetTimestamp, AVSEEK_FLAG_BACKWARD);
+    
+    if (ret >= 0) {
+        // Must flush codec buffers to remove old data
+        avcodec_flush_buffers(videoCodecCtx_);
+        if (audioCodecCtx_) {
+            avcodec_flush_buffers(audioCodecCtx_);
+        }
+        currentVideoTime_ = targetTime;
+        return true;
+    }
+    
+    return false;
 }
 
 bool Decoder::isOpen() const { return opened_; }
