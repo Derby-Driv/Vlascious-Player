@@ -42,8 +42,10 @@ build: build-env
 			cmake .. -DCMAKE_BUILD_TYPE=Release && \
 			make -j\$$(nproc) \
 		"
+	@mkdir -p output/kronaplayer/assets
+	@cp -r assets/* output/kronaplayer/assets/
 	@cp $(BUILD_DIR)/krona_player output/kronaplayer/krona_player
-	@echo ">>> Binary available at output/kronaplayer/krona_player"
+	@echo ">>> Build complete! Copy the contents of 'output/' to your R36S."
 
 # ---- Tests inside container -------------------------------------------------
 .PHONY: test

@@ -21,6 +21,7 @@
 #include <filesystem>
 #include <algorithm>
 #include <stdexcept>
+#include <unistd.h>
 #include <exception>
 
 namespace fs = std::filesystem;
@@ -175,9 +176,25 @@ static int runApp(int argc, char* argv[]) {
             "font.ttf"
         };
         
+        char cwdBuf[1024];
+        if (getcwd(cwdBuf, sizeof(cwdBuf)) != nullptr) {
+            fprintf(stderr, "[Main] Current working directory: %s\n", cwdBuf);
+        }
+
         for (const char* path : fontPaths) {
+            FILE* test = fopen(path, "rb");
+            if (test) {
+                fprintf(stderr, "[Main] Found font file physically at: %s\n", path);
+                fclose(test);
+            } else {
+                fprintf(stderr, "[Main] Font file missing physically at: %s\n", path);
+            }
+
             font = TTF_OpenFont(path, 24);
-            if (font) break;
+            if (font) {
+                fprintf(stderr, "[Main] Successfully loaded font: %s\n", path);
+                break;
+            }
         }
         
         if (!font) {
