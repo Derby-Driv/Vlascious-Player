@@ -43,7 +43,8 @@ The R36S **does not have WiFi**. All file transfers are done via USB OTG or by r
    kronaplayer/
    ├── krona_player          ← the compiled ARM64 binary
    ├── assets/
-   │   └── font.ttf          ← required font for menu
+   │   ├── font.ttf          ← required font for menu
+   │   └── cover.png         ← cover art for ArkOS
    └── videos/
        └── myvideo.mp4     ← your video file(s)
    ```
@@ -52,7 +53,10 @@ The R36S **does not have WiFi**. All file transfers are done via USB OTG or by r
 4. On the R36S, open **File Manager** (under the Tools section in ArkOS).
 5. Copy `kronaplayer/` → `/roms/ports/kronaplayer/`
 6. Copy `Krona_Player.sh` → `/roms/ports/`
-7. Restart EmulationStation or reboot. The player will appear under **Ports**.
+7. For the cover art to show up in the menu:
+   - Create the `images` folder if it doesn't exist: `/roms/ports/images/`
+   - Copy `assets/cover.png` → `/roms/ports/images/Krona_Player-image.png`
+8. Restart EmulationStation or reboot. The player will appear under **Ports**.
 
 ### Method 2 — SD Card
 
@@ -61,8 +65,10 @@ The R36S **does not have WiFi**. All file transfers are done via USB OTG or by r
 3. Copy the same files to the equivalent paths on the SD card's `EASYROMS` partition:
    - `ports/kronaplayer/krona_player`
    - `ports/kronaplayer/assets/font.ttf`
+   - `ports/kronaplayer/assets/cover.png`
    - `ports/kronaplayer/videos/`
    - `ports/Krona_Player.sh`
+   - `ports/images/Krona_Player-image.png`  ← (copied from assets/cover.png)
 4. Unmount, reinsert, and boot.
 
 ### Running
