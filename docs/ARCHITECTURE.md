@@ -97,7 +97,7 @@ Audio is handled via SDL2's audio callback mechanism:
 2. `SwrContext` resamples to the format expected by SDL2 (signed 16-bit, stereo, 44100 Hz).
 3. SDL2 pulls samples via its audio callback.
 
-> **Note:** In this initial version, audio/video synchronisation is approximate (frame-paced). Future versions will implement PTS-based sync with a master clock.
+> **Note:** Audio/video synchronisation relies on a combination of frame-pacing and an audio buffer capacity threshold. If the audio buffer exceeds a certain size (e.g. 1 second of audio), the video loop temporarily pauses decoding to allow the SDL audio thread to drain the buffer, keeping playback smoothly in sync.
 
 ---
 
@@ -111,10 +111,16 @@ MPlayer/
 ├── Krona_Player.sh           # ArkOS launcher script
 │
 ├── include/
-│   └── decoder.h            # Decoder + PlayerState API
+│   ├── app.h                # App lifecycle and SDL context
+│   ├── decoder.h            # FFmpeg wrapper API
+│   ├── menu.h               # UI and filesystem scanner
+│   └── video_player.h       # A/V playback and sync logic
 ├── src/
-│   ├── main.cpp             # Entry point, SDL2 loop
-│   └── decoder.cpp          # FFmpeg decoding logic
+│   ├── app.cpp
+│   ├── decoder.cpp
+│   ├── main.cpp             # Minimal entry point
+│   ├── menu.cpp
+│   └── video_player.cpp
 ├── tests/
 │   └── test_core.cpp        # Google Test suite
 │
@@ -131,17 +137,14 @@ MPlayer/
 ## Component Dependency Graph
 
 ```
-┌──────────┐     ┌──────────┐
-│  main()  │────→│ core_lib │
-│  (exe)   │     │ (static) │
-└──────────┘     └────┬─────┘
-                      │
-              ┌───────┼────────┐
-              ▼       ▼        ▼
-          ┌──────┐ ┌─────┐ ┌──────┐
-          │SDL2  │ │FFmpeg│ │GTest │
-          └──────┘ └─────┘ └──────┘
-                            (tests only)
+┌──────────┐     ┌──────────────┐     ┌───────────┐
+│  main()  │────→│ App (Window) │────→│   Menu    │
+│  (exe)   │     └──────┬───────┘     └───────────┘
+└──────────┘            │
+                        ▼             ┌───────────┐
+                 ┌──────────────┐     │  FFmpeg   │
+                 │ VideoPlayer  │────→│ (Decoder) │
+                 └──────────────┘     └───────────┘
 ```
 
-`core_lib` is a **static library** containing all business logic (decoder, state machine). The `krona_player` executable links against it. Tests link against `core_lib` + GTest without needing a display or audio device.
+The application is highly modular. `App` manages global state and SDL initialization. It orchestrates `Menu` (for UI) and `VideoPlayer` (for media playback). `VideoPlayer` delegates low-level video decoding to the `Decoder` class.

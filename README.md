@@ -2,7 +2,7 @@
 
 A native C++ MP4 video player built specifically for the **R36S** handheld console running **ArkOS 2.0** (aarch64/ARM64).
 
-Uses **FFmpeg** for decoding and **SDL2** for rendering and audio output — no heavy GUI frameworks, just fast native playback optimised for the R36S hardware.
+Uses **FFmpeg** for decoding and **SDL2** for rendering and audio output — no heavy GUI frameworks, just fast native playback optimised for the R36S hardware. It features full A/V sync, hardware scaling, and video seeking.
 
 ---
 
@@ -74,9 +74,10 @@ It will open a video selection menu listing all `.mp4` files inside `/roms/ports
 | R36S Button | Action                                |
 |-------------|---------------------------------------|
 | D-Pad UP/DN | Navigate video list                   |
+| D-Pad L/R   | Seek backward/forward 10 seconds      |
 | A           | Select video / Play / Pause           |
-| B           | Return to menu (when playing)         |
-| START       | Quit (or return to menu when playing) |
+| B           | Return to menu                        |
+| START       | Quit                                  |
 
 ---
 
