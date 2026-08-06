@@ -1,0 +1,51 @@
+# =============================================================================
+# Krona Player — Release Pipeline
+# =============================================================================
+# Triggered when a new tag is pushed (e.g., v1.0.0).
+# Builds the project, zips the output folder, and creates a GitHub Release.
+# =============================================================================
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build project via Makefile
+        run: make build
+
+      - name: Package Release
+        run: |
+          cd output
+          zip -r ../KronaPlayer.zip *
+          cd ..
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: KronaPlayer.zip
+          name: Release ${{ github.ref_name }}
+          body: "Automated release of KronaPlayer for R36S."
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
