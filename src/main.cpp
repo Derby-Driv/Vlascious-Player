@@ -4,18 +4,24 @@
 // Initialises SDL2 (Video + Audio), opens an MP4 file via the Decoder, and
 // runs the main event / render loop.
 //
-// Usage:  ./krona_player <path_to_video.mp4>
+// Usage:  ./krona_player [path_to_video.mp4]
 //
-// On the R36S, this is launched by Krona_Player.sh which sets up the correct
-// environment variables (SDL_AUDIODRIVER, SDL_NOMOUSE, etc.).
+// If no arguments are provided, it opens a simple file browser in the 
+// current directory (or videos/ if it exists).
 // =============================================================================
 
 #include "decoder.h"
 
 #include <SDL2/SDL.h>
+#include <SDL2/SDL_ttf.h>
 #include <cstdio>
 #include <cstdlib>
 #include <string>
+#include <vector>
+#include <filesystem>
+#include <algorithm>
+
+namespace fs = std::filesystem;
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -23,27 +29,59 @@
 static constexpr int R36S_SCREEN_W = 640;
 static constexpr int R36S_SCREEN_H = 480;
 
+enum class AppState {
+    Menu,
+    Playing
+};
+
 // ---------------------------------------------------------------------------
-// Print usage and exit
+// Helper: Render Text
 // ---------------------------------------------------------------------------
-static void usage(const char* progname) {
-    fprintf(stderr, "Usage: %s <video_file.mp4>\n", progname);
+static SDL_Texture* renderText(SDL_Renderer* renderer, TTF_Font* font, const std::string& text, SDL_Color color) {
+    if (text.empty()) return nullptr;
+    SDL_Surface* surface = TTF_RenderText_Blended(font, text.c_str(), color);
+    if (!surface) return nullptr;
+    SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, surface);
+    SDL_FreeSurface(surface);
+    return texture;
+}
+
+// ---------------------------------------------------------------------------
+// Helper: Find Videos
+// ---------------------------------------------------------------------------
+static std::vector<std::string> findVideos(const std::string& dirPath) {
+    std::vector<std::string> videos;
+    if (!fs::exists(dirPath) || !fs::is_directory(dirPath)) {
+        return videos;
+    }
+    
+    for (const auto& entry : fs::directory_iterator(dirPath)) {
+        if (entry.is_regular_file()) {
+            std::string ext = entry.path().extension().string();
+            // Convert to lowercase
+            std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+            if (ext == ".mp4") {
+                videos.push_back(entry.path().string());
+            }
+        }
+    }
+    std::sort(videos.begin(), videos.end());
+    return videos;
 }
 
 // =============================================================================
 // Main
 // =============================================================================
 int main(int argc, char* argv[]) {
-    if (argc < 2) {
-        usage(argv[0]);
-        return 1;
-    }
-
-    const std::string videoPath = argv[1];
-
     // ---- SDL2 Initialisation ------------------------------------------------
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) != 0) {
         fprintf(stderr, "[Main] SDL_Init failed: %s\n", SDL_GetError());
+        return 1;
+    }
+    
+    if (TTF_Init() != 0) {
+        fprintf(stderr, "[Main] TTF_Init failed: %s\n", TTF_GetError());
+        SDL_Quit();
         return 1;
     }
 
@@ -55,6 +93,7 @@ int main(int argc, char* argv[]) {
     );
     if (!window) {
         fprintf(stderr, "[Main] SDL_CreateWindow failed: %s\n", SDL_GetError());
+        TTF_Quit();
         SDL_Quit();
         return 1;
     }
@@ -64,17 +103,16 @@ int main(int argc, char* argv[]) {
         SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC
     );
     if (!renderer) {
-        // Fallback to software renderer
         renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
     }
     if (!renderer) {
         fprintf(stderr, "[Main] SDL_CreateRenderer failed: %s\n", SDL_GetError());
         SDL_DestroyWindow(window);
+        TTF_Quit();
         SDL_Quit();
         return 1;
     }
 
-    // Hide cursor (irrelevant on R36S but tidy for desktop testing)
     SDL_ShowCursor(SDL_DISABLE);
 
     // ---- Open a gamepad if available ----------------------------------------
@@ -90,51 +128,105 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    // ---- Decoder Initialisation ---------------------------------------------
+    // ---- App State Setup ----------------------------------------------------
+    AppState appState = AppState::Menu;
+    std::string videoToPlay = "";
+    
+    if (argc >= 2) {
+        videoToPlay = argv[1];
+        appState = AppState::Playing;
+    }
+
+    // ---- Menu State Variables -----------------------------------------------
+    std::vector<std::string> videoFiles;
+    int selectedVideoIdx = 0;
+    TTF_Font* font = nullptr;
+    
+    if (appState == AppState::Menu) {
+        // Look for videos in "videos/" or current directory
+        videoFiles = findVideos("videos");
+        if (videoFiles.empty()) {
+            videoFiles = findVideos(".");
+        }
+        
+        // Try to load font from various locations
+        const char* fontPaths[] = {
+            "assets/font.ttf",
+            "../assets/font.ttf",
+            "/roms/ports/kronaplayer/assets/font.ttf",
+            "font.ttf"
+        };
+        
+        for (const char* path : fontPaths) {
+            font = TTF_OpenFont(path, 24);
+            if (font) break;
+        }
+        
+        if (!font) {
+            fprintf(stderr, "[Main] Warning: Could not load any font for the menu.\n");
+            // If we have videos but no font, just auto-play the first one
+            if (!videoFiles.empty()) {
+                videoToPlay = videoFiles[0];
+                appState = AppState::Playing;
+            }
+        }
+    }
+
+    // ---- Player State Variables ---------------------------------------------
     r36s::Decoder decoder;
-    if (!decoder.open(videoPath)) {
-        fprintf(stderr, "[Main] Failed to open video: %s\n", videoPath.c_str());
-        SDL_DestroyRenderer(renderer);
-        SDL_DestroyWindow(window);
-        SDL_Quit();
-        return 1;
-    }
-
-    const int videoW = decoder.getWidth();
-    const int videoH = decoder.getHeight();
-    fprintf(stderr, "[Main] Video resolution: %dx%d\n", videoW, videoH);
-
-    // Create YUV texture matching the video dimensions
-    SDL_Texture* texture = SDL_CreateTexture(
-        renderer,
-        SDL_PIXELFORMAT_IYUV, // YUV420P
-        SDL_TEXTUREACCESS_STREAMING,
-        videoW, videoH
-    );
-    if (!texture) {
-        fprintf(stderr, "[Main] SDL_CreateTexture failed: %s\n", SDL_GetError());
-        decoder.close();
-        SDL_DestroyRenderer(renderer);
-        SDL_DestroyWindow(window);
-        SDL_Quit();
-        return 1;
-    }
-
-    // ---- Player State -------------------------------------------------------
+    SDL_Texture* videoTexture = nullptr;
     r36s::PlayerState playerState;
-    playerState.play();
+    Uint32 frameDelayMs = 33; // ~30fps default
 
-    // ---- Compute frame delay from video stream FPS --------------------------
-    AVCodecContext* vctx = decoder.getVideoCodecCtx();
-    double fps = 30.0; // fallback
-    if (vctx && vctx->framerate.num > 0 && vctx->framerate.den > 0) {
-        fps = static_cast<double>(vctx->framerate.num) / vctx->framerate.den;
-    }
-    const Uint32 frameDelayMs = static_cast<Uint32>(1000.0 / fps);
+    // Helper lambda to transition from Menu to Playing
+    auto startPlayback = [&](const std::string& path) {
+        if (!decoder.open(path)) {
+            fprintf(stderr, "[Main] Failed to open video: %s\n", path.c_str());
+            return false;
+        }
+        
+        const int videoW = decoder.getWidth();
+        const int videoH = decoder.getHeight();
+        fprintf(stderr, "[Main] Video resolution: %dx%d\n", videoW, videoH);
+
+        if (videoTexture) SDL_DestroyTexture(videoTexture);
+        
+        videoTexture = SDL_CreateTexture(
+            renderer,
+            SDL_PIXELFORMAT_IYUV, // YUV420P
+            SDL_TEXTUREACCESS_STREAMING,
+            videoW, videoH
+        );
+        
+        if (!videoTexture) {
+            fprintf(stderr, "[Main] SDL_CreateTexture failed: %s\n", SDL_GetError());
+            decoder.close();
+            return false;
+        }
+        
+        playerState.play();
+        
+        AVCodecContext* vctx = decoder.getVideoCodecCtx();
+        double fps = 30.0;
+        if (vctx && vctx->framerate.num > 0 && vctx->framerate.den > 0) {
+            fps = static_cast<double>(vctx->framerate.num) / vctx->framerate.den;
+        }
+        frameDelayMs = static_cast<Uint32>(1000.0 / fps);
+        
+        appState = AppState::Playing;
+        return true;
+    };
 
     // ---- Main Loop ----------------------------------------------------------
     bool running = true;
     SDL_Event event;
+
+    // If launched with arg, start immediately
+    if (appState == AppState::Playing) {
+        if (!startPlayback(videoToPlay)) {
+            running = false; // Will trigger exit
+        }
+    }
 
     while (running) {
         Uint32 frameStart = SDL_GetTicks();
@@ -147,32 +239,62 @@ int main(int argc, char* argv[]) {
                     break;
 
                 case SDL_KEYDOWN:
-                    switch (event.key.keysym.sym) {
-                        case SDLK_ESCAPE:
-                        case SDLK_q:
+                    if (event.key.keysym.sym == SDLK_ESCAPE || event.key.keysym.sym == SDLK_q) {
+                        if (appState == AppState::Playing && videoFiles.size() > 0) {
+                            // Return to menu
+                            decoder.close();
+                            appState = AppState::Menu;
+                        } else {
                             running = false;
-                            break;
-                        case SDLK_SPACE:
-                        case SDLK_RETURN:
+                        }
+                    } else if (appState == AppState::Menu) {
+                        if (event.key.keysym.sym == SDLK_UP) {
+                            selectedVideoIdx = std::max(0, selectedVideoIdx - 1);
+                        } else if (event.key.keysym.sym == SDLK_DOWN) {
+                            selectedVideoIdx = std::min((int)videoFiles.size() - 1, selectedVideoIdx + 1);
+                        } else if (event.key.keysym.sym == SDLK_RETURN || event.key.keysym.sym == SDLK_SPACE) {
+                            if (!videoFiles.empty()) {
+                                startPlayback(videoFiles[selectedVideoIdx]);
+                            }
+                        }
+                    } else if (appState == AppState::Playing) {
+                        if (event.key.keysym.sym == SDLK_SPACE || event.key.keysym.sym == SDLK_RETURN) {
                             playerState.togglePause();
-                            break;
-                        default:
-                            break;
+                        }
                     }
                     break;
 
                 case SDL_CONTROLLERBUTTONDOWN:
-                    switch (event.cbutton.button) {
-                        case SDL_CONTROLLER_BUTTON_START:
-                            // START on R36S → Quit
+                    if (event.cbutton.button == SDL_CONTROLLER_BUTTON_START) {
+                        // START on R36S → Quit (or return to menu)
+                        if (appState == AppState::Playing && videoFiles.size() > 0) {
+                            decoder.close();
+                            appState = AppState::Menu;
+                        } else {
                             running = false;
-                            break;
-                        case SDL_CONTROLLER_BUTTON_A:
-                            // A on R36S → Play/Pause
+                        }
+                    } else if (appState == AppState::Menu) {
+                        if (event.cbutton.button == SDL_CONTROLLER_BUTTON_DPAD_UP) {
+                            selectedVideoIdx = std::max(0, selectedVideoIdx - 1);
+                        } else if (event.cbutton.button == SDL_CONTROLLER_BUTTON_DPAD_DOWN) {
+                            selectedVideoIdx = std::min((int)videoFiles.size() - 1, selectedVideoIdx + 1);
+                        } else if (event.cbutton.button == SDL_CONTROLLER_BUTTON_A) {
+                            if (!videoFiles.empty()) {
+                                startPlayback(videoFiles[selectedVideoIdx]);
+                            }
+                        }
+                    } else if (appState == AppState::Playing) {
+                        if (event.cbutton.button == SDL_CONTROLLER_BUTTON_A) {
                             playerState.togglePause();
-                            break;
-                        default:
-                            break;
+                        } else if (event.cbutton.button == SDL_CONTROLLER_BUTTON_B) {
+                            // B also returns to menu
+                            if (videoFiles.size() > 0) {
+                                decoder.close();
+                                appState = AppState::Menu;
+                            } else {
+                                running = false;
+                            }
+                        }
                     }
                     break;
 
@@ -181,42 +303,106 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        // ---- Decode & render (only when playing) ----------------------------
-        if (playerState.getStatus() == r36s::PlayStatus::Playing) {
-            if (decoder.readVideoFrame()) {
-                AVFrame* frame = decoder.getFrame();
-
-                // Upload YUV planes to the SDL texture
-                SDL_UpdateYUVTexture(
-                    texture, nullptr,
-                    frame->data[0], frame->linesize[0],  // Y
-                    frame->data[1], frame->linesize[1],  // U
-                    frame->data[2], frame->linesize[2]   // V
-                );
-            } else {
-                // End of file — stop playback
-                playerState.stop();
-                running = false;
-            }
-        }
-
-        // ---- Render ----------------------------------------------------------
+        // ---- Render & Logic -------------------------------------------------
+        SDL_SetRenderDrawColor(renderer, 20, 20, 25, 255); // Dark background
         SDL_RenderClear(renderer);
-        SDL_RenderCopy(renderer, texture, nullptr, nullptr);
-        SDL_RenderPresent(renderer);
 
-        // ---- Frame pacing ----------------------------------------------------
-        Uint32 elapsed = SDL_GetTicks() - frameStart;
-        if (elapsed < frameDelayMs) {
-            SDL_Delay(frameDelayMs - elapsed);
+        if (appState == AppState::Menu) {
+            // Render Menu
+            if (!font) {
+                // Should only happen if there are no videos AND no font
+            } else if (videoFiles.empty()) {
+                SDL_Texture* t = renderText(renderer, font, "No .mp4 files found in videos/", {255, 100, 100, 255});
+                if (t) {
+                    int w, h;
+                    SDL_QueryTexture(t, nullptr, nullptr, &w, &h);
+                    SDL_Rect dst = { (R36S_SCREEN_W - w)/2, (R36S_SCREEN_H - h)/2, w, h };
+                    SDL_RenderCopy(renderer, t, nullptr, &dst);
+                    SDL_DestroyTexture(t);
+                }
+            } else {
+                // Header
+                SDL_Texture* th = renderText(renderer, font, "Select a Video (D-Pad to navigate, A to play)", {200, 200, 200, 255});
+                if (th) {
+                    int w, h;
+                    SDL_QueryTexture(th, nullptr, nullptr, &w, &h);
+                    SDL_Rect dst = { 20, 20, w, h };
+                    SDL_RenderCopy(renderer, th, nullptr, &dst);
+                    SDL_DestroyTexture(th);
+                }
+
+                // List
+                int startY = 80;
+                for (int i = 0; i < (int)videoFiles.size(); ++i) {
+                    fs::path p = videoFiles[i];
+                    std::string filename = p.filename().string();
+                    
+                    SDL_Color color = (i == selectedVideoIdx) ? SDL_Color{255, 200, 50, 255} : SDL_Color{150, 150, 150, 255};
+                    if (i == selectedVideoIdx) {
+                        filename = "> " + filename;
+                    } else {
+                        filename = "  " + filename;
+                    }
+                    
+                    SDL_Texture* tv = renderText(renderer, font, filename, color);
+                    if (tv) {
+                        int w, h;
+                        SDL_QueryTexture(tv, nullptr, nullptr, &w, &h);
+                        SDL_Rect dst = { 40, startY + (i * 35), w, h };
+                        SDL_RenderCopy(renderer, tv, nullptr, &dst);
+                        SDL_DestroyTexture(tv);
+                    }
+                }
+            }
+            SDL_RenderPresent(renderer);
+            SDL_Delay(16); // ~60fps for menu
+        }
+        else if (appState == AppState::Playing) {
+            // Decode next frame
+            if (playerState.getStatus() == r36s::PlayStatus::Playing) {
+                if (decoder.readVideoFrame()) {
+                    AVFrame* frame = decoder.getFrame();
+
+                    // Upload YUV planes
+                    SDL_UpdateYUVTexture(
+                        videoTexture, nullptr,
+                        frame->data[0], frame->linesize[0],  // Y
+                        frame->data[1], frame->linesize[1],  // U
+                        frame->data[2], frame->linesize[2]   // V
+                    );
+                } else {
+                    // End of file — stop playback, return to menu if available
+                    if (videoFiles.size() > 0) {
+                        decoder.close();
+                        appState = AppState::Menu;
+                    } else {
+                        playerState.stop();
+                        running = false;
+                    }
+                }
+            }
+
+            // Render video
+            if (videoTexture) {
+                SDL_RenderCopy(renderer, videoTexture, nullptr, nullptr);
+            }
+            SDL_RenderPresent(renderer);
+
+            // Frame pacing
+            Uint32 elapsed = SDL_GetTicks() - frameStart;
+            if (elapsed < frameDelayMs) {
+                SDL_Delay(frameDelayMs - elapsed);
+            }
         }
     }
 
     // ---- Cleanup ------------------------------------------------------------
     fprintf(stderr, "[Main] Shutting down...\n");
 
-    SDL_DestroyTexture(texture);
+    if (videoTexture) SDL_DestroyTexture(videoTexture);
     decoder.close();
+
+    if (font) TTF_CloseFont(font);
 
     if (controller) {
         SDL_GameControllerClose(controller);
@@ -224,6 +410,8 @@ int main(int argc, char* argv[]) {
 
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
+    
+    TTF_Quit();
     SDL_Quit();
 
     return 0;

@@ -12,6 +12,7 @@ find_package(PkgConfig REQUIRED)
 
 # SDL2
 pkg_check_modules(SDL2 REQUIRED sdl2)
+pkg_check_modules(SDL2_TTF REQUIRED SDL2_ttf)
 
 # FFmpeg components
 pkg_check_modules(AVFORMAT  REQUIRED libavformat)
@@ -55,16 +56,19 @@ add_library(core_lib STATIC
 target_include_directories(core_lib PUBLIC
     ${CMAKE_SOURCE_DIR}/include
     ${SDL2_INCLUDE_DIRS}
+    ${SDL2_TTF_INCLUDE_DIRS}
     ${FFMPEG_INCLUDE_DIRS}
 )
 
 target_link_directories(core_lib PUBLIC
     ${SDL2_LIBRARY_DIRS}
+    ${SDL2_TTF_LIBRARY_DIRS}
     ${FFMPEG_LIBRARY_DIRS}
 )
 
 target_link_libraries(core_lib PUBLIC
     ${SDL2_LIBRARIES}
+    ${SDL2_TTF_LIBRARIES}
     ${FFMPEG_LIBRARIES}
     pthread
 )

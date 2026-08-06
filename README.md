@@ -42,6 +42,8 @@ The R36S **does not have WiFi**. All file transfers are done via USB OTG or by r
    ```
    kronaplayer/
    ├── krona_player          ← the compiled ARM64 binary
+   ├── assets/
+   │   └── font.ttf          ← required font for menu
    └── videos/
        └── myvideo.mp4     ← your video file(s)
    ```
@@ -58,20 +60,24 @@ The R36S **does not have WiFi**. All file transfers are done via USB OTG or by r
 2. Mount the SD card on your PC.
 3. Copy the same files to the equivalent paths on the SD card's `EASYROMS` partition:
    - `ports/kronaplayer/krona_player`
+   - `ports/kronaplayer/assets/font.ttf`
    - `ports/kronaplayer/videos/`
    - `ports/Krona_Player.sh`
 4. Unmount, reinsert, and boot.
 
 ### Running
 
-Launch **"Krona Player"** from the **Ports** menu in ArkOS. The player will start playing the first `.mp4` file found inside `/roms/ports/kronaplayer/videos/`.
+Launch **"Krona Player"** from the **Ports** menu in ArkOS. 
+It will open a video selection menu listing all `.mp4` files inside `/roms/ports/kronaplayer/videos/`.
 
 **Controls:**
 
-| R36S Button | Action        |
-|-------------|---------------|
-| START       | Quit          |
-| A / SPACE   | Play / Pause  |
+| R36S Button | Action                                |
+|-------------|---------------------------------------|
+| D-Pad UP/DN | Navigate video list                   |
+| A           | Select video / Play / Pause           |
+| B           | Return to menu (when playing)         |
+| START       | Quit (or return to menu when playing) |
 
 ---
 

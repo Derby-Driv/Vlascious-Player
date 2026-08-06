@@ -18,6 +18,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         pkg-config \
         # SDL2
         libsdl2-dev \
+        libsdl2-ttf-dev \
         # FFmpeg
         libavcodec-dev \
         libavformat-dev \
