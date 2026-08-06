@@ -89,6 +89,21 @@ SDL_Texture* Menu::renderText(const std::string& text, SDL_Color color) const {
 void Menu::render() {
     SDL_Renderer* renderer = app_->getRenderer();
 
+    // 1. Draw Title Bar Background
+    SDL_Rect titleBarRect = {0, 0, R36S_SCREEN_W, 50};
+    SDL_SetRenderDrawColor(renderer, 40, 45, 55, 255);
+    SDL_RenderFillRect(renderer, &titleBarRect);
+    
+    // 2. Draw Title Text
+    SDL_Texture* titleTex = renderText("Krona Player", {255, 255, 255, 255});
+    if (titleTex) {
+        int w, h;
+        SDL_QueryTexture(titleTex, nullptr, nullptr, &w, &h);
+        SDL_Rect dst = { (R36S_SCREEN_W - w)/2, (50 - h)/2, w, h };
+        SDL_RenderCopy(renderer, titleTex, nullptr, &dst);
+        SDL_DestroyTexture(titleTex);
+    }
+
     if (!app_->getFont()) {
         // Render nothing if font missing
     } else if (videoFiles_.empty()) {
@@ -101,32 +116,46 @@ void Menu::render() {
             SDL_DestroyTexture(t);
         }
     } else {
-        SDL_Texture* th = renderText("Select a Video (D-Pad to navigate, A to play)", {200, 200, 200, 255});
-        if (th) {
-            int w, h;
-            SDL_QueryTexture(th, nullptr, nullptr, &w, &h);
-            SDL_Rect dst = { 20, 20, w, h };
-            SDL_RenderCopy(renderer, th, nullptr, &dst);
-            SDL_DestroyTexture(th);
-        }
+        // 3. Dynamic Scrolling List
+        const int itemHeight = 45;
+        const int listStartY = 60;
+        const int visibleAreaHeight = R36S_SCREEN_H - listStartY;
 
-        int startY = 80;
+        // Calculate scroll offset to keep selected item near the center
+        int targetCameraY = (selectedVideoIdx_ * itemHeight) - (visibleAreaHeight / 2) + (itemHeight / 2);
+        if (targetCameraY < 0) targetCameraY = 0;
+        
+        int maxCameraY = ((int)videoFiles_.size() * itemHeight) - visibleAreaHeight;
+        if (maxCameraY < 0) maxCameraY = 0;
+        if (targetCameraY > maxCameraY) targetCameraY = maxCameraY;
+
         for (int i = 0; i < (int)videoFiles_.size(); ++i) {
+            int yPos = listStartY + (i * itemHeight) - targetCameraY;
+            
+            // Culling: don't render items outside the screen
+            if (yPos + itemHeight < listStartY || yPos > R36S_SCREEN_H) {
+                continue;
+            }
+
             fs::path p = videoFiles_[i];
             std::string filename = p.filename().string();
             
-            SDL_Color color = (i == selectedVideoIdx_) ? SDL_Color{255, 200, 50, 255} : SDL_Color{150, 150, 150, 255};
+            // Draw Selection Box
             if (i == selectedVideoIdx_) {
-                filename = "> " + filename;
-            } else {
-                filename = "  " + filename;
+                SDL_Rect selBox = { 10, yPos + 2, R36S_SCREEN_W - 20, itemHeight - 4 };
+                SDL_SetRenderDrawColor(renderer, 50, 100, 180, 255); // Highlight Blue
+                SDL_RenderFillRect(renderer, &selBox);
             }
+            
+            SDL_Color color = (i == selectedVideoIdx_) ? SDL_Color{255, 255, 255, 255} : SDL_Color{180, 180, 180, 255};
             
             SDL_Texture* tv = renderText(filename, color);
             if (tv) {
                 int w, h;
                 SDL_QueryTexture(tv, nullptr, nullptr, &w, &h);
-                SDL_Rect dst = { 40, startY + (i * 35), w, h };
+                
+                // Add a small left margin for text
+                SDL_Rect dst = { 30, yPos + (itemHeight - h)/2, w, h };
                 SDL_RenderCopy(renderer, tv, nullptr, &dst);
                 SDL_DestroyTexture(tv);
             }
