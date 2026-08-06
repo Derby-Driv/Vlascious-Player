@@ -40,13 +40,15 @@ The R36S **does not have WiFi**. All file transfers are done via USB OTG or by r
 
 1. Copy the **contents** of the `output/` folder from this repository directly to the root of your USB flash drive:
    - `kronaplayer/` (the entire folder)
+   - `images/` (contains the auto-linked cover art)
    - `Krona_Player.sh`
-   *(Note: You no longer need to copy gamelist.xml manually; the script injects it automatically!)*
+   *(Note: EmulationStation automatically detects `images/Krona_Player-image.png` without needing a gamelist.xml!)*
 2. Place your `.mp4` video files inside `kronaplayer/videos/` on the USB drive.
 3. Plug the USB flash drive into the R36S **OTG port** (the port closest to the shoulder buttons).
 4. On the R36S, open **File Manager** (under the Tools section in ArkOS).
 5. Copy the files to `/roms/ports/`:
    - Copy `kronaplayer/` → `/roms/ports/kronaplayer/`
+   - Copy `images/` → `/roms/ports/images/`
    - Copy `Krona_Player.sh` → `/roms/ports/`
 6. Restart EmulationStation or reboot. The player will appear under **Ports** with its cover art!
 
@@ -54,8 +56,9 @@ The R36S **does not have WiFi**. All file transfers are done via USB OTG or by r
 
 1. Power off the R36S and remove the SD card.
 2. Mount the SD card on your PC.
-3. Copy the following files from the `output/` folder to the `ports/` directory on the SD card's `EASYROMS` partition:
+3. Copy the following folders/files from the `output/` folder to the `ports/` directory on the SD card's `EASYROMS` partition:
    - `ports/kronaplayer/` (don't forget to put your videos in `ports/kronaplayer/videos/`)
+   - `ports/images/`
    - `ports/Krona_Player.sh`
 4. Place your `.mp4` video files inside `ports/kronaplayer/videos/`.
 5. Unmount, reinsert, and boot.
