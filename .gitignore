@@ -13,3 +13,4 @@ cmake-build-*/
 .DS_Store
 Thumbs.db
 \n# Build artifacts inside deployment folder\nkronaplayer/krona_player
+\n# Deployment folder\noutput/kronaplayer/krona_player
