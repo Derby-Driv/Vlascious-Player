@@ -42,7 +42,8 @@ build: build-env
 			cmake .. -DCMAKE_BUILD_TYPE=Release && \
 			make -j\$$(nproc) \
 		"
-	@echo ">>> Binary available at $(BUILD_DIR)/krona_player"
+	@cp $(BUILD_DIR)/krona_player kronaplayer/krona_player
+	@echo ">>> Binary available at kronaplayer/krona_player"
 
 # ---- Tests inside container -------------------------------------------------
 .PHONY: test

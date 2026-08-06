@@ -38,38 +38,20 @@ The R36S **does not have WiFi**. All file transfers are done via USB OTG or by r
 
 ### Method 1 — USB OTG (recommended)
 
-1. Copy the following files to a USB flash drive:
-   ```
-   kronaplayer/
-   ├── krona_player          ← the compiled ARM64 binary
-   ├── assets/
-   │   ├── font.ttf          ← required font for menu
-   │   └── cover.png         ← cover art for ArkOS
-   └── videos/
-       └── myvideo.mp4     ← your video file(s)
-   ```
-2. Copy `Krona_Player.sh` to the root of the flash drive.
+1. Copy the `kronaplayer/` folder from this repository directly to the root of your USB flash drive.
+2. Place your `.mp4` video files inside `kronaplayer/videos/` on the USB drive.
 3. Plug the USB flash drive into the R36S **OTG port** (the port closest to the shoulder buttons).
 4. On the R36S, open **File Manager** (under the Tools section in ArkOS).
 5. Copy `kronaplayer/` → `/roms/ports/kronaplayer/`
-6. Copy `Krona_Player.sh` → `/roms/ports/`
-7. For the cover art to show up in the menu:
-   - Create the `images` folder if it doesn't exist: `/roms/ports/images/`
-   - Copy `assets/cover.png` → `/roms/ports/images/Krona_Player-image.png`
-8. Restart EmulationStation or reboot. The player will appear under **Ports**.
+6. Restart EmulationStation or reboot. The player will appear under **Ports** with its cover art!
 
 ### Method 2 — SD Card
 
 1. Power off the R36S and remove the SD card.
 2. Mount the SD card on your PC.
-3. Copy the same files to the equivalent paths on the SD card's `EASYROMS` partition:
-   - `ports/kronaplayer/krona_player`
-   - `ports/kronaplayer/assets/font.ttf`
-   - `ports/kronaplayer/assets/cover.png`
-   - `ports/kronaplayer/videos/`
-   - `ports/Krona_Player.sh`
-   - `ports/images/Krona_Player-image.png`  ← (copied from assets/cover.png)
-4. Unmount, reinsert, and boot.
+3. Copy the `kronaplayer/` folder to the `ports/` directory on the SD card's `EASYROMS` partition (resulting in `ports/kronaplayer/`).
+4. Place your `.mp4` video files inside `ports/kronaplayer/videos/`.
+5. Unmount, reinsert, and boot.
 
 ### Running
 
