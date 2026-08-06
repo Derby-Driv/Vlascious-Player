@@ -1,0 +1,63 @@
+# =============================================================================
+# Krona Player — CI Pipeline
+# =============================================================================
+# Builds and tests the project inside an emulated ARM64 Docker container.
+# Runs on every push/PR to main.
+# =============================================================================
+
+name: CI — ARM64 Build & Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      # 1. Checkout source
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Set up QEMU for ARM64 emulation
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      # 3. Set up Docker Buildx (multi-arch support)
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # 4. Build the ARM64 Docker image
+      - name: Build ARM64 dev image
+        run: |
+          docker build --platform linux/arm64 -t r36s-dev-env .
+
+      # 5. Compile the project
+      - name: Build project
+        run: |
+          docker run --rm --platform linux/arm64 \
+            -v "${{ github.workspace }}":/project \
+            -w /project \
+            r36s-dev-env \
+            bash -c "
+              mkdir -p build &&
+              cd build &&
+              cmake .. -DCMAKE_BUILD_TYPE=Debug &&
+              make -j\$(nproc)
+            "
+
+      # 6. Run unit tests
+      - name: Run tests
+        run: |
+          docker run --rm --platform linux/arm64 \
+            -v "${{ github.workspace }}":/project \
+            -w /project \
+            r36s-dev-env \
+            bash -c "
+              cd build &&
+              ctest --output-on-failure
+            "
