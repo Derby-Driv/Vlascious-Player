@@ -51,6 +51,9 @@ set(FFMPEG_LIBRARY_DIRS
 # =============================================================================
 add_library(core_lib STATIC
     src/decoder.cpp
+    src/app.cpp
+    src/menu.cpp
+    src/video_player.cpp
 )
 
 target_include_directories(core_lib PUBLIC
