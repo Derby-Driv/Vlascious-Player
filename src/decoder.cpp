@@ -45,8 +45,11 @@ Decoder::Decoder()
     : fmtCtx_(nullptr),
       videoCodecCtx_(nullptr),
       audioCodecCtx_(nullptr),
+      swrCtx_(nullptr),
       frame_(nullptr),
       packet_(nullptr),
+      audioBuffer_(nullptr),
+      audioBufferSize_(0),
       videoStreamIdx_(-1),
       audioStreamIdx_(-1),
       opened_(false) {}
@@ -89,6 +92,34 @@ bool Decoder::open(const std::string& filepath) {
             fprintf(stderr, "[Decoder] Warning: failed to open audio codec (continuing without audio)\n");
             audioStreamIdx_ = -1;
             // Not a fatal error — video-only playback is acceptable
+        } else {
+            // Set up libswresample to output S16 interleaved, 2 channels, 44100 Hz
+            int64_t outChLayout = AV_CH_LAYOUT_STEREO;
+            AVSampleFormat outSampleFmt = AV_SAMPLE_FMT_S16;
+            int outSampleRate = 44100;
+            
+            int64_t inChLayout = audioCodecCtx_->channel_layout;
+            if (inChLayout == 0) {
+                inChLayout = av_get_default_channel_layout(audioCodecCtx_->channels);
+            }
+            AVSampleFormat inSampleFmt = audioCodecCtx_->sample_fmt;
+            int inSampleRate = audioCodecCtx_->sample_rate;
+            
+            swrCtx_ = swr_alloc_set_opts(nullptr, 
+                                outChLayout, outSampleFmt, outSampleRate,
+                                inChLayout, inSampleFmt, inSampleRate, 
+                                0, nullptr);
+            if (!swrCtx_ || swr_init(swrCtx_) < 0) {
+                fprintf(stderr, "[Decoder] Warning: Failed to initialize swresample context\n");
+                if (swrCtx_) {
+                    swr_free(&swrCtx_);
+                    swrCtx_ = nullptr;
+                }
+            } else {
+                // Pre-allocate a 192KB buffer for resampled audio (plenty for 44.1kHz S16 Stereo frames)
+                audioBufferSize_ = 192000;
+                audioBuffer_ = (uint8_t*)av_malloc(audioBufferSize_);
+            }
         }
     }
 
@@ -128,6 +159,14 @@ void Decoder::close() {
         avcodec_free_context(&audioCodecCtx_);
         audioCodecCtx_ = nullptr;
     }
+    if (swrCtx_) {
+        swr_free(&swrCtx_);
+        swrCtx_ = nullptr;
+    }
+    if (audioBuffer_) {
+        av_free(audioBuffer_);
+        audioBuffer_ = nullptr;
+    }
     if (fmtCtx_) {
         avformat_close_input(&fmtCtx_);
         fmtCtx_ = nullptr;
@@ -137,61 +176,72 @@ void Decoder::close() {
     opened_ = false;
 }
 
-bool Decoder::readVideoFrame() {
-    if (!opened_ || videoStreamIdx_ < 0) return false;
+bool Decoder::decodeNextFrame(bool& isVideo, bool& isAudio) {
+    isVideo = false;
+    isAudio = false;
 
+    if (!opened_) return false;
+
+    // Check if there are lingering frames in the decoders
+    if (videoStreamIdx_ >= 0) {
+        if (avcodec_receive_frame(videoCodecCtx_, frame_) == 0) {
+            isVideo = true;
+            return true;
+        }
+    }
+    if (audioStreamIdx_ >= 0) {
+        if (avcodec_receive_frame(audioCodecCtx_, frame_) == 0) {
+            isAudio = true;
+            return true;
+        }
+    }
+
+    // Read new packets
     while (av_read_frame(fmtCtx_, packet_) >= 0) {
         if (packet_->stream_index == videoStreamIdx_) {
-            int ret = avcodec_send_packet(videoCodecCtx_, packet_);
-            av_packet_unref(packet_);
-
-            if (ret < 0) {
-                fprintf(stderr, "[Decoder] Error sending video packet\n");
-                return false;
-            }
-
-            ret = avcodec_receive_frame(videoCodecCtx_, frame_);
-            if (ret == 0) {
-                return true; // Frame decoded successfully
-            }
-            if (ret == AVERROR(EAGAIN)) {
+            if (avcodec_send_packet(videoCodecCtx_, packet_) == 0) {
+                av_packet_unref(packet_);
+                if (avcodec_receive_frame(videoCodecCtx_, frame_) == 0) {
+                    isVideo = true;
+                    return true;
+                }
                 continue; // Need more packets
             }
-            // EOF or error
-            return false;
+        } else if (packet_->stream_index == audioStreamIdx_) {
+            if (avcodec_send_packet(audioCodecCtx_, packet_) == 0) {
+                av_packet_unref(packet_);
+                if (avcodec_receive_frame(audioCodecCtx_, frame_) == 0) {
+                    isAudio = true;
+                    return true;
+                }
+                continue; // Need more packets
+            }
         }
         av_packet_unref(packet_);
     }
 
-    return false; // End of file
+    return false; // EOF
 }
 
-bool Decoder::readAudioFrame() {
-    if (!opened_ || audioStreamIdx_ < 0) return false;
+const uint8_t* Decoder::getResampledAudio(int& outSize) {
+    outSize = 0;
+    if (!swrCtx_ || !audioBuffer_ || !frame_) return nullptr;
 
-    while (av_read_frame(fmtCtx_, packet_) >= 0) {
-        if (packet_->stream_index == audioStreamIdx_) {
-            int ret = avcodec_send_packet(audioCodecCtx_, packet_);
-            av_packet_unref(packet_);
+    int maxOutSamples = av_rescale_rnd(swr_get_delay(swrCtx_, frame_->sample_rate) + frame_->nb_samples, 
+                                       44100, frame_->sample_rate, AV_ROUND_UP);
 
-            if (ret < 0) {
-                fprintf(stderr, "[Decoder] Error sending audio packet\n");
-                return false;
-            }
-
-            ret = avcodec_receive_frame(audioCodecCtx_, frame_);
-            if (ret == 0) {
-                return true;
-            }
-            if (ret == AVERROR(EAGAIN)) {
-                continue;
-            }
-            return false;
-        }
-        av_packet_unref(packet_);
+    uint8_t* outBuffers[1] = { audioBuffer_ };
+    int outSamples = swr_convert(swrCtx_, 
+                                 outBuffers, maxOutSamples,
+                                 (const uint8_t**)frame_->data, frame_->nb_samples);
+    
+    if (outSamples < 0) {
+        return nullptr;
     }
-
-    return false;
+    
+    // 2 channels * 2 bytes per sample (S16)
+    outSize = outSamples * 2 * 2;
+    return audioBuffer_;
 }
 
 bool Decoder::isOpen() const { return opened_; }

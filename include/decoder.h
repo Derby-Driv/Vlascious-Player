@@ -13,6 +13,7 @@ extern "C" {
 #include <libavutil/imgutils.h>
 #include <libswresample/swresample.h>
 #include <libswscale/swscale.h>
+#include <libavutil/opt.h>
 }
 
 #include <string>
@@ -64,13 +65,15 @@ public:
     /// Release all FFmpeg resources.
     void close();
 
-    /// Read and decode the next video frame.
-    /// Returns true if a frame was decoded; the frame data is in `getFrame()`.
-    bool readVideoFrame();
+    // Replaces the old split methods with a single read loop.
+    // Returns true if a frame was successfully read.
+    // isVideo and isAudio will indicate which type of frame was decoded.
+    bool decodeNextFrame(bool& isVideo, bool& isAudio);
 
-    /// Read and decode the next audio frame.
-    /// Returns true if a frame was decoded.
-    bool readAudioFrame();
+    // Audio extraction
+    // Returns a pointer to the resampled audio (S16 44100Hz Stereo)
+    // and sets outSize to the byte size of the data. Returns nullptr if no data.
+    const uint8_t* getResampledAudio(int& outSize);
 
     /// Returns true if a file is currently open.
     bool isOpen() const;
@@ -98,8 +101,11 @@ private:
     AVFormatContext* fmtCtx_;
     AVCodecContext*  videoCodecCtx_;
     AVCodecContext*  audioCodecCtx_;
+    SwrContext*      swrCtx_;
     AVFrame*         frame_;
     AVPacket*        packet_;
+    uint8_t*         audioBuffer_;
+    int              audioBufferSize_;
 
     int videoStreamIdx_;
     int audioStreamIdx_;

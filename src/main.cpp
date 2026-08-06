@@ -75,10 +75,26 @@ static std::vector<std::string> findVideos(const std::string& dirPath) {
 // Main (Internal)
 // =============================================================================
 static int runApp(int argc, char* argv[]) {
-    // ---- SDL2 Initialisation ------------------------------------------------
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) != 0) {
         fprintf(stderr, "[Main] SDL_Init failed: %s\n", SDL_GetError());
         return 1;
+    }
+
+    // ---- Audio Setup --------------------------------------------------------
+    SDL_AudioSpec wanted_spec, spec;
+    SDL_zero(wanted_spec);
+    wanted_spec.freq = 44100;
+    wanted_spec.format = AUDIO_S16SYS;
+    wanted_spec.channels = 2;
+    wanted_spec.samples = 1024; // safe buffer size
+    wanted_spec.callback = nullptr;
+    
+    SDL_AudioDeviceID audioDevice = SDL_OpenAudioDevice(nullptr, 0, &wanted_spec, &spec, 0);
+    if (audioDevice == 0) {
+        fprintf(stderr, "[Main] Warning: Failed to open audio: %s\n", SDL_GetError());
+    } else {
+        fprintf(stderr, "[Main] Audio initialized: 44.1kHz S16 Stereo\n");
+        SDL_PauseAudioDevice(audioDevice, 0); // start consuming
     }
     
     if (TTF_Init() != 0) {
@@ -165,7 +181,7 @@ static int runApp(int argc, char* argv[]) {
         }
         
         if (!font) {
-            fprintf(stderr, "[Main] Warning: Could not load any font for the menu.\n");
+            fprintf(stderr, "[Main] Warning: Could not load any font for the menu. TTF Error: %s\n", TTF_GetError());
             // If we have videos but no font, just auto-play the first one
             if (!videoFiles.empty()) {
                 videoToPlay = videoFiles[0];
@@ -360,20 +376,49 @@ static int runApp(int argc, char* argv[]) {
             SDL_Delay(16); // ~60fps for menu
         }
         else if (appState == AppState::Playing) {
-            // Decode next frame
+            // Decode next frame(s)
             if (playerState.getStatus() == r36s::PlayStatus::Playing) {
-                if (decoder.readVideoFrame()) {
-                    AVFrame* frame = decoder.getFrame();
+                bool gotVideo = false;
+                bool eof = false;
 
-                    // Upload YUV planes
-                    SDL_UpdateYUVTexture(
-                        videoTexture, nullptr,
-                        frame->data[0], frame->linesize[0],  // Y
-                        frame->data[1], frame->linesize[1],  // U
-                        frame->data[2], frame->linesize[2]   // V
-                    );
-                } else {
+                // Decode packets until we get a video frame to present.
+                // Any audio frames encountered are resampled and pushed to the sound card.
+                while (!gotVideo && !eof) {
+                    // Prevent audio buffer bloat if video decoding is too slow
+                    if (audioDevice > 0 && SDL_GetQueuedAudioSize(audioDevice) > 176400) {
+                        // Reached ~1 second of queued audio, break to let it drain 
+                        // and render whatever we have.
+                        break;
+                    }
+
+                    bool isVideo = false;
+                    bool isAudio = false;
+                    if (decoder.decodeNextFrame(isVideo, isAudio)) {
+                        if (isAudio && audioDevice > 0) {
+                            int audioSize = 0;
+                            const uint8_t* audioData = decoder.getResampledAudio(audioSize);
+                            if (audioData && audioSize > 0) {
+                                SDL_QueueAudio(audioDevice, audioData, audioSize);
+                            }
+                        }
+                        if (isVideo) {
+                            AVFrame* frame = decoder.getFrame();
+                            SDL_UpdateYUVTexture(
+                                videoTexture, nullptr,
+                                frame->data[0], frame->linesize[0],  // Y
+                                frame->data[1], frame->linesize[1],  // U
+                                frame->data[2], frame->linesize[2]   // V
+                            );
+                            gotVideo = true;
+                        }
+                    } else {
+                        eof = true;
+                    }
+                }
+
+                if (eof) {
                     // End of file — stop playback, return to menu if available
+                    if (audioDevice > 0) SDL_ClearQueuedAudio(audioDevice);
                     if (videoFiles.size() > 0) {
                         decoder.close();
                         appState = AppState::Menu;
@@ -403,6 +448,8 @@ static int runApp(int argc, char* argv[]) {
 
     if (videoTexture) SDL_DestroyTexture(videoTexture);
     decoder.close();
+    
+    if (audioDevice > 0) SDL_CloseAudioDevice(audioDevice);
 
     if (font) TTF_CloseFont(font);
 
