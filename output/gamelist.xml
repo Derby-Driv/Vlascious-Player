@@ -1,0 +1,9 @@
+<?xml version="1.0"?>
+<gameList>
+	<game>
+		<path>./Krona_Player.sh</path>
+		<name>Krona Player</name>
+		<image>./images/Krona_Player-image.png</image>
+		<desc>Native hardware-accelerated MP4 Video Player for the R36S console.</desc>
+	</game>
+</gameList>

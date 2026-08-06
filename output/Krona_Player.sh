@@ -8,13 +8,11 @@ export SDL_NOMOUSE=1
 export SDL_AUDIODRIVER=alsa
 export SDL_GAMECONTROLLERCONFIG="$(cat /roms/ports/gamecontrollerdb.txt 2>/dev/null)"
 
-# ---- Navigate to this script's directory ----
-cd "$(dirname "$0")" || exit 1
-
-
+# ---- Navigate to player directory ----
+cd "$(dirname "$0")/kronaplayer" || exit 1
 
 # ---- Launch the player (File Browser Mode) ----
-./kronaplayer/krona_player
+./krona_player
 
 # ---- Return control to ArkOS ----
 exit 0
