@@ -20,6 +20,8 @@
 #include <vector>
 #include <filesystem>
 #include <algorithm>
+#include <stdexcept>
+#include <exception>
 
 namespace fs = std::filesystem;
 
@@ -70,9 +72,9 @@ static std::vector<std::string> findVideos(const std::string& dirPath) {
 }
 
 // =============================================================================
-// Main
+// Main (Internal)
 // =============================================================================
-int main(int argc, char* argv[]) {
+static int runApp(int argc, char* argv[]) {
     // ---- SDL2 Initialisation ------------------------------------------------
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) != 0) {
         fprintf(stderr, "[Main] SDL_Init failed: %s\n", SDL_GetError());
@@ -415,4 +417,25 @@ int main(int argc, char* argv[]) {
     SDL_Quit();
 
     return 0;
+}
+
+// =============================================================================
+// Main Entry Point
+// =============================================================================
+int main(int argc, char* argv[]) {
+    // Redirect standard output and error to a log file for debugging on the R36S
+    freopen("krona_player.log", "w", stderr);
+    freopen("krona_player.log", "w", stdout);
+
+    fprintf(stderr, "=== Krona Player Started ===\n");
+
+    try {
+        return runApp(argc, argv);
+    } catch (const std::exception& e) {
+        fprintf(stderr, "[FATAL] Unhandled std::exception: %s\n", e.what());
+        return 1;
+    } catch (...) {
+        fprintf(stderr, "[FATAL] Unknown unhandled exception occurred!\n");
+        return 1;
+    }
 }
