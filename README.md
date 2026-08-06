@@ -32,35 +32,18 @@ That's it. The compiled ARM64 binary will appear at `build/krona_player`.
 
 ---
 
-## 🎮 Deploy to R36S (Offline)
+## 🎮 Deploy to R36S
 
-The R36S **does not have WiFi**. All file transfers are done via USB OTG or by removing the SD card.
+Transfer the contents of the `output/` folder (or the extracted `KronaPlayer.zip` release) into the `/roms/ports/` directory on your R36S (the `EASYROMS` partition).
 
-### Method 1 — USB OTG (recommended)
+The final structure on your R36S should look exactly like this:
+- `/roms/ports/Krona_Player.sh`
+- `/roms/ports/images/`
+- `/roms/ports/kronaplayer/`
 
-1. Copy the **contents** of the `output/` folder from this repository directly to the root of your USB flash drive:
-   - `kronaplayer/` (the entire folder)
-   - `images/` (contains the auto-linked cover art)
-   - `Krona_Player.sh`
-2. Place your `.mp4` video files inside `kronaplayer/videos/` on the USB drive.
-3. Plug the USB flash drive into the R36S **OTG port** (the port closest to the shoulder buttons).
-4. On the R36S, open **File Manager** (under the Tools section in ArkOS).
-5. Copy the files to `/roms/ports/`:
-   - Copy `kronaplayer/` → `/roms/ports/kronaplayer/`
-   - Copy `images/` → `/roms/ports/images/`
-   - Copy `Krona_Player.sh` → `/roms/ports/`
-6. Restart EmulationStation or reboot. The player will appear under **Ports** with its cover art!
+Place your `.mp4` video files inside the `/roms/ports/kronaplayer/videos/` directory.
 
-### Method 2 — SD Card
-
-1. Power off the R36S and remove the SD card.
-2. Mount the SD card on your PC.
-3. Copy the following folders/files from the `output/` folder to the `ports/` directory on the SD card's `EASYROMS` partition:
-   - `ports/kronaplayer/` (don't forget to put your videos in `ports/kronaplayer/videos/`)
-   - `ports/images/`
-   - `ports/Krona_Player.sh`
-4. Place your `.mp4` video files inside `ports/kronaplayer/videos/`.
-5. Unmount, reinsert, and boot.
+Once the files are in place, restart EmulationStation or reboot the console. The player will appear under the **Ports** menu with its cover art!
 
 ### Running
 
