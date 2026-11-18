@@ -5,7 +5,6 @@
 // =============================================================================
 #ifndef R36S_DECODER_H
 #define R36S_DECODER_H
-
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
@@ -17,7 +16,6 @@ extern "C" {
 #include <string>
 
 namespace r36s {
-
 // =============================================================================
 // PlayStatus — simple state enum for the player
 // =============================================================================
@@ -26,7 +24,6 @@ enum class PlayStatus {
     Playing,  // Actively decoding & rendering
     Paused,   // Playback paused; frame frozen
 };
-
 // =============================================================================
 // PlayerState — lightweight state machine (testable without SDL)
 // =============================================================================
@@ -44,7 +41,6 @@ public:
 private:
     PlayStatus status_;
 };
-
 // =============================================================================
 // Decoder — FFmpeg wrapper
 // =============================================================================
@@ -62,7 +58,6 @@ public:
 
     /// Release all FFmpeg resources.
     void close();
-
     // Returns true if a frame was successfully read.
     // isVideo and isAudio indicate which type of frame was decoded.
     bool decodeNextFrame(bool& isVideo, bool& isAudio);
@@ -72,14 +67,14 @@ public:
 
     /// Current video presentation time in seconds.
     double getCurrentTime() const;
-
+    /// Total media duration in seconds, or -1.0 when unavailable.
+    double getDuration() const;
     /// End timestamp of the most recently decoded/resampled audio block.
     /// Returns -1.0 until an audio timestamp is available.
     double getAudioEndTime() const;
 
     /// Seeks the video by a relative amount in seconds.
     bool seekRelative(double secondsDelta);
-
     bool isOpen() const;
     int getVideoStreamIndex() const;
     int getAudioStreamIndex() const;
@@ -91,7 +86,6 @@ public:
 
 private:
     bool openCodec(int streamIndex, AVCodecContext** ctx);
-
     AVFormatContext* fmtCtx_;
     AVCodecContext* videoCodecCtx_;
     AVCodecContext* audioCodecCtx_;
