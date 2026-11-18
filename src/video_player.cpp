@@ -3,26 +3,160 @@
 // =============================================================================
 #include "video_player.h"
 #include "app.h"
-
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
+#include <string>
 
 namespace r36s {
 namespace {
 
-constexpr double kSeekStepSeconds = 10.0;
-constexpr Uint32 kHeldSeekRepeatMs = 500;
+constexpr double kTapSeekSeconds = 10.0;
+constexpr Uint32 kHeldSeekInitialDelayMs = 220;
 constexpr Uint32 kResumeSaveIntervalMs = 5000;
 constexpr double kMinimumResumeSeconds = 3.0;
+
+// A short hold accelerates to 30-second jumps, then 2-minute jumps, and
+// finally 5-minute jumps. The repeat interval also tightens as the hold grows.
+constexpr Uint32 kMediumSeekAfterMs = 600;
+constexpr Uint32 kFastSeekAfterMs = 1300;
+constexpr Uint32 kMediumSeekRepeatMs = 220;
+constexpr Uint32 kFastSeekRepeatMs = 220;
+constexpr Uint32 kBlazingSeekRepeatMs = 180;
+constexpr double kMediumSeekSeconds = 30.0;
+constexpr double kFastSeekSeconds = 120.0;
+constexpr double kBlazingSeekSeconds = 300.0;
 
 std::string resumeFileForVideo(const std::string& videoPath) {
     const std::filesystem::path filename =
         std::filesystem::path(videoPath).filename();
     return (std::filesystem::path(".vlascious_resume") /
             (filename.string() + ".pos")).string();
+}
+
+std::string formatPlaybackTime(double seconds, bool showHours) {
+    if (!std::isfinite(seconds) || seconds < 0.0) {
+        return showHours ? "--:--:--" : "--:--";
+    }
+
+    const long long total = static_cast<long long>(seconds);
+    const long long hours = total / 3600;
+    const long long minutes = (total / 60) % 60;
+    const long long secs = total % 60;
+    char buffer[24];
+    if (showHours) {
+        std::snprintf(buffer, sizeof(buffer), "%02lld:%02lld:%02lld",
+                      hours, minutes, secs);
+    } else {
+        std::snprintf(buffer, sizeof(buffer), "%02lld:%02lld",
+                      total / 60, secs);
+    }
+    return buffer;
+}
+
+// Tiny built-in 5x7 font for the playback time labels. This avoids adding
+// SDL_ttf or any extra runtime dependency to the R36S build.
+void drawHudText(SDL_Renderer* renderer, int x, int y,
+                 const std::string& text, Uint8 red, Uint8 green,
+                 Uint8 blue, Uint8 alpha) {
+    static const char* digits[10][7] = {
+        {"01110", "10001", "10011", "10101", "11001", "10001", "01110"},
+        {"00100", "01100", "00100", "00100", "00100", "00100", "01110"},
+        {"01110", "10001", "00001", "00010", "00100", "01000", "11111"},
+        {"11110", "00001", "00001", "01110", "00001", "00001", "11110"},
+        {"00010", "00110", "01010", "10010", "11111", "00010", "00010"},
+        {"11111", "10000", "10000", "11110", "00001", "00001", "11110"},
+        {"01110", "10000", "10000", "11110", "10001", "10001", "01110"},
+        {"11111", "00001", "00010", "00100", "01000", "01000", "01000"},
+        {"01110", "10001", "10001", "01110", "10001", "10001", "01110"},
+        {"01110", "10001", "10001", "01111", "00001", "00001", "01110"}
+    };
+    static const char* colon[7] = {
+        "00000", "00100", "00100", "00000", "00100", "00100", "00000"
+    };
+    const int scale = 2;
+    const int advance = 12;
+
+    SDL_SetRenderDrawColor(renderer, red, green, blue, alpha);
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        const char ch = text[i];
+        const char* const* glyph = nullptr;
+        if (ch >= '0' && ch <= '9') {
+            glyph = digits[ch - '0'];
+        } else if (ch == ':') {
+            glyph = colon;
+        }
+        if (glyph) {
+            for (int row = 0; row < 7; ++row) {
+                for (int col = 0; col < 5; ++col) {
+                    if (glyph[row][col] == '1') {
+                        SDL_Rect pixel = {
+                            x + static_cast<int>(i) * advance + col * scale,
+                            y + row * scale,
+                            scale,
+                            scale
+                        };
+                        SDL_RenderFillRect(renderer, &pixel);
+                    }
+                }
+            }
+        }
+    }
+}
+
+void drawPlaybackHud(SDL_Renderer* renderer, int screenW, int screenH,
+                     double currentTime, double duration) {
+    if (!renderer || screenW < 100 || screenH < 48) {
+        return;
+    }
+
+    const bool hasDuration = std::isfinite(duration) && duration > 0.0;
+    const bool showHours = hasDuration ? duration >= 3600.0 : currentTime >= 3600.0;
+    const std::string elapsedLabel = formatPlaybackTime(currentTime, showHours);
+    const std::string totalLabel = formatPlaybackTime(duration, showHours);
+
+    const int panelHeight = 48;
+    const int panelY = screenH - panelHeight;
+    const int sideMargin = 15;
+    const int barY = panelY + 8;
+    const int barHeight = 5;
+    const int barWidth = screenW - (sideMargin * 2);
+
+    SDL_BlendMode previousBlendMode = SDL_BLENDMODE_NONE;
+    SDL_GetRenderDrawBlendMode(renderer, &previousBlendMode);
+    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 205);
+    SDL_Rect panel = {0, panelY, screenW, panelHeight};
+    SDL_RenderFillRect(renderer, &panel);
+
+    SDL_SetRenderDrawColor(renderer, 85, 85, 85, 255);
+    SDL_Rect track = {sideMargin, barY, barWidth, barHeight};
+    SDL_RenderFillRect(renderer, &track);
+
+    if (hasDuration) {
+        double progress = currentTime / duration;
+        progress = std::max(0.0, std::min(1.0, progress));
+        int filledWidth = static_cast<int>(barWidth * progress);
+        if (filledWidth > 0) {
+            SDL_SetRenderDrawColor(renderer, 255, 177, 66, 255);
+            SDL_Rect filled = {sideMargin, barY, filledWidth, barHeight};
+            SDL_RenderFillRect(renderer, &filled);
+        }
+    }
+
+    const int textY = panelY + 21;
+    const int charAdvance = 12;
+    const int totalWidth = static_cast<int>(totalLabel.size()) * charAdvance - 2;
+    drawHudText(renderer, sideMargin, textY, elapsedLabel,
+                245, 245, 245, 255);
+    drawHudText(renderer, screenW - sideMargin - totalWidth, textY,
+                totalLabel, 245, 245, 245, 255);
+
+    SDL_SetRenderDrawBlendMode(renderer, previousBlendMode);
 }
 
 } // namespace
@@ -34,6 +168,7 @@ VideoPlayer::VideoPlayer(App* app)
       frameStart_(0),
       seekDirection_(0),
       nextHeldSeekAt_(0),
+      heldSeekStartedAt_(0),
       lastResumeSaveAt_(0),
       playbackFinished_(false) {
 }
@@ -52,7 +187,6 @@ bool VideoPlayer::openVideo(const std::string& path) {
         fprintf(stderr, "[VideoPlayer] Failed to open video: %s\n", path.c_str());
         return false;
     }
-
     const int videoW = decoder_.getWidth();
     const int videoH = decoder_.getHeight();
     fprintf(stderr, "[VideoPlayer] Video resolution: %dx%d\n", videoW, videoH);
@@ -61,7 +195,6 @@ bool VideoPlayer::openVideo(const std::string& path) {
         SDL_DestroyTexture(videoTexture_);
         videoTexture_ = nullptr;
     }
-
     videoTexture_ = SDL_CreateTexture(
         app_->getRenderer(),
         SDL_PIXELFORMAT_IYUV,
@@ -77,8 +210,8 @@ bool VideoPlayer::openVideo(const std::string& path) {
     currentVideoPath_ = path;
     playbackFinished_ = false;
     seekDirection_ = 0;
+    heldSeekStartedAt_ = 0;
     lastResumeSaveAt_ = SDL_GetTicks();
-
     // Restore this particular movie's last saved position, if one exists.
     loadResumePosition();
 
@@ -87,7 +220,6 @@ bool VideoPlayer::openVideo(const std::string& path) {
         SDL_ClearQueuedAudio(audioDevice);
         SDL_PauseAudioDevice(audioDevice, 0);
     }
-
     playerState_.play();
     AVCodecContext* vctx = decoder_.getVideoCodecCtx();
     double fps = 30.0;
@@ -117,7 +249,6 @@ void VideoPlayer::closeVideo() {
         SDL_DestroyTexture(videoTexture_);
         videoTexture_ = nullptr;
     }
-
     decoder_.close();
 
     SDL_AudioDeviceID audioDevice = app_->getAudioDevice();
@@ -136,17 +267,17 @@ void VideoPlayer::startHeldSeek(int direction) {
     }
 
     seekDirection_ = direction;
+    heldSeekStartedAt_ = SDL_GetTicks();
 
-    // Keep the familiar immediate 10-second jump on the initial press.
-    if (decoder_.seekRelative(direction * kSeekStepSeconds)) {
+    // A quick tap remains a precise, familiar 10-second skip.
+    if (decoder_.seekRelative(direction * kTapSeekSeconds)) {
         SDL_AudioDeviceID audioDevice = app_->getAudioDevice();
         if (audioDevice > 0) {
             SDL_ClearQueuedAudio(audioDevice);
         }
     }
 
-    // While held, repeat the same 10-second jump twice per second.
-    nextHeldSeekAt_ = SDL_GetTicks() + kHeldSeekRepeatMs;
+    nextHeldSeekAt_ = heldSeekStartedAt_ + kHeldSeekInitialDelayMs;
 }
 
 void VideoPlayer::stopHeldSeek(int direction) {
@@ -165,21 +296,33 @@ void VideoPlayer::updateHeldSeek() {
         return;
     }
 
-    if (decoder_.seekRelative(seekDirection_ * kSeekStepSeconds)) {
+    const Uint32 heldForMs = now - heldSeekStartedAt_;
+    double seekSeconds = kMediumSeekSeconds;
+    Uint32 repeatMs = kMediumSeekRepeatMs;
+    if (heldForMs >= kFastSeekAfterMs) {
+        seekSeconds = kBlazingSeekSeconds;
+        repeatMs = kBlazingSeekRepeatMs;
+    } else if (heldForMs >= kMediumSeekAfterMs) {
+        seekSeconds = kFastSeekSeconds;
+        repeatMs = kFastSeekRepeatMs;
+    }
+
+    if (decoder_.seekRelative(seekDirection_ * seekSeconds)) {
         SDL_AudioDeviceID audioDevice = app_->getAudioDevice();
         if (audioDevice > 0) {
             SDL_ClearQueuedAudio(audioDevice);
         }
     }
 
-    nextHeldSeekAt_ = now + kHeldSeekRepeatMs;
+    // Schedule from the actual seek completion time; don't queue a backlog of
+    // seeks if the handheld is busy decoding or seeking through the file.
+    nextHeldSeekAt_ = SDL_GetTicks() + repeatMs;
 }
 
 void VideoPlayer::loadResumePosition() {
     if (currentVideoPath_.empty()) {
         return;
     }
-
     const std::string resumePath = resumeFileForVideo(currentVideoPath_);
     std::ifstream input(resumePath);
     double resumeSeconds = 0.0;
@@ -191,7 +334,6 @@ void VideoPlayer::loadResumePosition() {
     if (!std::isfinite(resumeSeconds) || resumeSeconds < kMinimumResumeSeconds) {
         return;
     }
-
     if (decoder_.seekRelative(resumeSeconds)) {
         fprintf(stderr, "[VideoPlayer] Resuming %s at %.1f seconds\n",
                 currentVideoPath_.c_str(), resumeSeconds);
@@ -204,7 +346,6 @@ void VideoPlayer::saveResumePosition() {
     if (currentVideoPath_.empty() || !decoder_.isOpen()) {
         return;
     }
-
     const double position = decoder_.getCurrentTime();
     const std::string resumePath = resumeFileForVideo(currentVideoPath_);
 
@@ -213,7 +354,6 @@ void VideoPlayer::saveResumePosition() {
         std::remove(resumePath.c_str());
         return;
     }
-
     try {
         std::filesystem::create_directories(".vlascious_resume");
     } catch (const std::filesystem::filesystem_error& error) {
@@ -221,7 +361,6 @@ void VideoPlayer::saveResumePosition() {
                 error.what());
         return;
     }
-
     const std::string temporaryPath = resumePath + ".tmp";
     {
         std::ofstream output(temporaryPath, std::ios::out | std::ios::trunc);
@@ -237,7 +376,6 @@ void VideoPlayer::saveResumePosition() {
             return;
         }
     }
-
     // rename() replaces the previous record atomically on the ArkOS filesystem.
     if (std::rename(temporaryPath.c_str(), resumePath.c_str()) != 0) {
         std::remove(temporaryPath.c_str());
@@ -256,7 +394,6 @@ void VideoPlayer::clearResumePosition() {
 
 void VideoPlayer::handleEvent(const SDL_Event& event) {
     SDL_AudioDeviceID audioDevice = app_->getAudioDevice();
-
     if (event.type == SDL_KEYDOWN) {
         if (event.key.keysym.sym == SDLK_ESCAPE || event.key.keysym.sym == SDLK_q) {
             app_->returnToMenu();
@@ -313,7 +450,6 @@ void VideoPlayer::updateAndRender() {
 
     SDL_AudioDeviceID audioDevice = app_->getAudioDevice();
     bool audioClockActive = false;
-
     if (playerState_.getStatus() == r36s::PlayStatus::Playing) {
         bool gotVideo = false;
         bool eof = false;
@@ -323,7 +459,6 @@ void VideoPlayer::updateAndRender() {
                 SDL_GetQueuedAudioSize(audioDevice) > 176400) {
                 break;
             }
-
             bool isVideo = false;
             bool isAudio = false;
             if (decoder_.decodeNextFrame(isVideo, isAudio)) {
@@ -335,7 +470,6 @@ void VideoPlayer::updateAndRender() {
                         SDL_QueueAudio(audioDevice, audioData, audioSize);
                     }
                 }
-
                 if (isVideo) {
                     AVFrame* frame = decoder_.getFrame();
                     // Use audio playback as the master clock. Audio timestamps
@@ -359,7 +493,6 @@ void VideoPlayer::updateAndRender() {
                                 if (videoLead <= 0.015 || queuedBytes == 0) {
                                     break;
                                 }
-
                                 // Never block input/rendering indefinitely if
                                 // the audio device stops consuming its queue.
                                 if (SDL_GetTicks() - syncStart >= 750) {
@@ -372,7 +505,6 @@ void VideoPlayer::updateAndRender() {
                             }
                         }
                     }
-
                     SDL_UpdateYUVTexture(
                         videoTexture_,
                         nullptr,
@@ -387,7 +519,6 @@ void VideoPlayer::updateAndRender() {
                 eof = true;
             }
         }
-
         if (eof) {
             playbackFinished_ = true;
             app_->returnToMenu();
@@ -401,10 +532,9 @@ void VideoPlayer::updateAndRender() {
     SDL_Renderer* renderer = app_->getRenderer();
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
     SDL_RenderClear(renderer);
-
+    int screenW = 0;
+    int screenH = 0;
     if (videoTexture_) {
-        int screenW = 0;
-        int screenH = 0;
         const int videoW = decoder_.getWidth();
         const int videoH = decoder_.getHeight();
         if (videoW > 0 && videoH > 0 &&
@@ -413,7 +543,6 @@ void VideoPlayer::updateAndRender() {
             const double scaleW = static_cast<double>(screenW) / videoW;
             const double scaleH = static_cast<double>(screenH) / videoH;
             const double scale = (scaleW < scaleH) ? scaleW : scaleH;
-
             SDL_Rect dstRect;
             dstRect.w = static_cast<int>(videoW * scale);
             dstRect.h = static_cast<int>(videoH * scale);
@@ -424,8 +553,16 @@ void VideoPlayer::updateAndRender() {
         }
     }
 
-    SDL_RenderPresent(renderer);
+    // Persistent playback HUD: elapsed time, total duration and progress bar.
+    if (videoTexture_) {
+        if (screenW <= 0 || screenH <= 0) {
+            SDL_GetRendererOutputSize(renderer, &screenW, &screenH);
+        }
+        drawPlaybackHud(renderer, screenW, screenH,
+                        decoder_.getCurrentTime(), decoder_.getDuration());
+    }
 
+    SDL_RenderPresent(renderer);
     // When audio is present, timestamps drive the video clock. Keep the old
     // frame-rate timer only as a fallback for silent videos / audio failure.
     if (!audioClockActive) {
