@@ -4,7 +4,6 @@
 
 #ifndef R36S_VIDEO_PLAYER_H
 #define R36S_VIDEO_PLAYER_H
-
 #include "decoder.h"
 #include <SDL2/SDL.h>
 #include <string>
@@ -28,7 +27,6 @@ private:
     void startHeldSeek(int direction);
     void stopHeldSeek(int direction);
     void updateHeldSeek();
-
     void loadResumePosition();
     void saveResumePosition();
     void clearResumePosition();
@@ -44,7 +42,7 @@ private:
     // Held seeking: +1 = forward, -1 = backward, 0 = inactive.
     int seekDirection_;
     Uint32 nextHeldSeekAt_;
-
+    Uint32 heldSeekStartedAt_;
     // Resume playback state is saved periodically and again when closing.
     std::string currentVideoPath_;
     Uint32 lastResumeSaveAt_;
@@ -52,5 +50,4 @@ private:
 };
 
 } // namespace r36s
-
 #endif // R36S_VIDEO_PLAYER_H
