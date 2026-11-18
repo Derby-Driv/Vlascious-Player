@@ -10,7 +10,6 @@ namespace r36s {
 // PlayerState
 // =============================================================================
 PlayerState::PlayerState() : status_(PlayStatus::Idle) {}
-
 PlayStatus PlayerState::getStatus() const { return status_; }
 
 bool PlayerState::isPaused() const { return status_ == PlayStatus::Paused; }
@@ -31,11 +30,9 @@ void PlayerState::togglePause() {
             break;
     }
 }
-
 void PlayerState::stop() {
     status_ = PlayStatus::Idle;
 }
-
 // =============================================================================
 // Decoder
 // =============================================================================
@@ -53,7 +50,6 @@ Decoder::Decoder()
       opened_(false),
       currentVideoTime_(0.0),
       currentAudioEndTime_(-1.0) {}
-
 Decoder::~Decoder() {
     close();
 }
@@ -71,7 +67,6 @@ bool Decoder::open(const std::string& filepath) {
         close();
         return false;
     }
-
     videoStreamIdx_ = av_find_best_stream(
         fmtCtx_, AVMEDIA_TYPE_VIDEO, -1, -1, nullptr, 0);
     if (videoStreamIdx_ >= 0) {
@@ -81,7 +76,6 @@ bool Decoder::open(const std::string& filepath) {
             return false;
         }
     }
-
     audioStreamIdx_ = av_find_best_stream(
         fmtCtx_, AVMEDIA_TYPE_AUDIO, -1, -1, nullptr, 0);
     if (audioStreamIdx_ >= 0) {
@@ -92,7 +86,6 @@ bool Decoder::open(const std::string& filepath) {
             int64_t outChLayout = AV_CH_LAYOUT_STEREO;
             AVSampleFormat outSampleFmt = AV_SAMPLE_FMT_S16;
             int outSampleRate = 44100;
-
             int64_t inChLayout = audioCodecCtx_->channel_layout;
             if (inChLayout == 0) {
                 inChLayout = av_get_default_channel_layout(audioCodecCtx_->channels);
@@ -104,7 +97,6 @@ bool Decoder::open(const std::string& filepath) {
                 inChLayout, audioCodecCtx_->sample_fmt,
                 audioCodecCtx_->sample_rate,
                 0, nullptr);
-
             if (!swrCtx_ || swr_init(swrCtx_) < 0) {
                 fprintf(stderr, "[Decoder] Warning: Failed to initialize swresample context\n");
                 if (swrCtx_) {
@@ -121,7 +113,6 @@ bool Decoder::open(const std::string& filepath) {
             }
         }
     }
-
     if (videoStreamIdx_ < 0) {
         fprintf(stderr, "[Decoder] No video stream found in file\n");
         close();
@@ -141,7 +132,6 @@ bool Decoder::open(const std::string& filepath) {
     currentAudioEndTime_ = -1.0;
     return true;
 }
-
 void Decoder::close() {
     if (packet_) {
         av_packet_free(&packet_);
@@ -171,7 +161,6 @@ void Decoder::close() {
         avformat_close_input(&fmtCtx_);
         fmtCtx_ = nullptr;
     }
-
     videoStreamIdx_ = -1;
     audioStreamIdx_ = -1;
     opened_ = false;
@@ -184,7 +173,6 @@ bool Decoder::decodeNextFrame(bool& isVideo, bool& isAudio) {
     isAudio = false;
 
     if (!opened_) return false;
-
     // Prefer draining ready audio frames before returning a video frame.
     // This keeps the SDL audio queue supplied before the picture advances.
     while (true) {
@@ -194,7 +182,6 @@ bool Decoder::decodeNextFrame(bool& isVideo, bool& isAudio) {
                 return true;
             }
         }
-
         if (videoStreamIdx_ >= 0 && videoCodecCtx_) {
             if (avcodec_receive_frame(videoCodecCtx_, frame_) == 0) {
                 isVideo = true;
@@ -207,7 +194,6 @@ bool Decoder::decodeNextFrame(bool& isVideo, bool& isAudio) {
                 return true;
             }
         }
-
         if (av_read_frame(fmtCtx_, packet_) < 0) {
             return false;
         }
@@ -222,7 +208,6 @@ bool Decoder::decodeNextFrame(bool& isVideo, bool& isAudio) {
         // Loop back and drain audio first, then video.
     }
 }
-
 const uint8_t* Decoder::getResampledAudio(int& outSize) {
     outSize = 0;
     if (!swrCtx_ || !audioBuffer_ || !frame_ || !fmtCtx_ || audioStreamIdx_ < 0) {
@@ -232,7 +217,6 @@ const uint8_t* Decoder::getResampledAudio(int& outSize) {
     int maxOutSamples = av_rescale_rnd(
         swr_get_delay(swrCtx_, frame_->sample_rate) + frame_->nb_samples,
         44100, frame_->sample_rate, AV_ROUND_UP);
-
     uint8_t* outBuffers[1] = { audioBuffer_ };
     int outSamples = swr_convert(
         swrCtx_, outBuffers, maxOutSamples,
@@ -244,14 +228,12 @@ const uint8_t* Decoder::getResampledAudio(int& outSize) {
 
     // 2 channels * 2 bytes per sample (S16).
     outSize = outSamples * 2 * 2;
-
     // Keep the end timestamp of the resampled audio block. SDL's queued byte
     // count can then tell us how far the audio clock has actually played.
     if (outSamples > 0) {
         AVStream* audioStream = fmtCtx_->streams[audioStreamIdx_];
         int64_t pts = frame_->best_effort_timestamp;
         if (pts == AV_NOPTS_VALUE) pts = frame_->pts;
-
         double audioStartTime = currentAudioEndTime_;
         if (pts != AV_NOPTS_VALUE) {
             audioStartTime = pts * av_q2d(audioStream->time_base);
@@ -270,6 +252,14 @@ double Decoder::getCurrentTime() const {
     return currentVideoTime_;
 }
 
+double Decoder::getDuration() const {
+    if (!opened_ || !fmtCtx_ || fmtCtx_->duration == AV_NOPTS_VALUE ||
+        fmtCtx_->duration <= 0) {
+        return -1.0;
+    }
+    return static_cast<double>(fmtCtx_->duration) / AV_TIME_BASE;
+}
+
 double Decoder::getAudioEndTime() const {
     return currentAudioEndTime_;
 }
@@ -279,7 +269,6 @@ bool Decoder::seekRelative(double secondsDelta) {
 
     double targetTime = currentVideoTime_ + secondsDelta;
     if (targetTime < 0.0) targetTime = 0.0;
-
     if (fmtCtx_->duration != AV_NOPTS_VALUE) {
         double durationSec = static_cast<double>(fmtCtx_->duration) / AV_TIME_BASE;
         if (targetTime > durationSec) {
@@ -290,7 +279,6 @@ bool Decoder::seekRelative(double secondsDelta) {
 
     int64_t targetTimestamp = static_cast<int64_t>(targetTime * AV_TIME_BASE);
     int ret = av_seek_frame(fmtCtx_, -1, targetTimestamp, AVSEEK_FLAG_BACKWARD);
-
     if (ret >= 0) {
         avcodec_flush_buffers(videoCodecCtx_);
         if (audioCodecCtx_) {
@@ -307,7 +295,6 @@ bool Decoder::seekRelative(double secondsDelta) {
 
     return false;
 }
-
 bool Decoder::isOpen() const { return opened_; }
 int Decoder::getVideoStreamIndex() const { return videoStreamIdx_; }
 int Decoder::getAudioStreamIndex() const { return audioStreamIdx_; }
@@ -320,7 +307,6 @@ int Decoder::getWidth() const {
 int Decoder::getHeight() const {
     return videoCodecCtx_ ? videoCodecCtx_->height : 0;
 }
-
 AVCodecContext* Decoder::getVideoCodecCtx() const { return videoCodecCtx_; }
 AVCodecContext* Decoder::getAudioCodecCtx() const { return audioCodecCtx_; }
 
@@ -331,7 +317,6 @@ bool Decoder::openCodec(int streamIndex, AVCodecContext** ctx) {
         fprintf(stderr, "[Decoder] Unsupported codec for stream %d\n", streamIndex);
         return false;
     }
-
     *ctx = avcodec_alloc_context3(codec);
     if (!*ctx) {
         fprintf(stderr, "[Decoder] Failed to allocate codec context\n");
@@ -346,7 +331,6 @@ bool Decoder::openCodec(int streamIndex, AVCodecContext** ctx) {
 
     // Tell the decoder which time base the demuxer uses for packet timestamps.
     (*ctx)->pkt_timebase = stream->time_base;
-
     if (avcodec_open2(*ctx, codec, nullptr) < 0) {
         fprintf(stderr, "[Decoder] Failed to open codec\n");
         avcodec_free_context(ctx);
